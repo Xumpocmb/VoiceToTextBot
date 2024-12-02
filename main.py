@@ -3,6 +3,8 @@ import glob
 import json
 import os
 import wave
+import uuid
+import time
 
 import aiohttp
 from aiogram import Bot, Dispatcher
@@ -34,10 +36,43 @@ dp = Dispatcher()
 model = Model("vosk-model-small-ru")
 
 
-async def convert_voice_to_text(file_path: str):
+# Функция для генерации уникального имени файла
+def generate_unique_filename(extension: str) -> str:
+    # Генерируем уникальный идентификатор
+    unique_id = uuid.uuid4().hex  # Используем UUID4 для создания уникального идентификатора
+    timestamp = int(time.time())  # Время в секундах с начала эпохи (это добавит уникальность по времени)
+
+    # Создаём имя файла с добавлением уникального идентификатора и времени
+    filename = f"{timestamp}_{unique_id}.{extension}"
+
+    return filename
+
+
+async def remove_audio_files(file_id):
+    # Удаление старых аудиофайлов
+    for file_path in glob.glob(f"voice_message_{file_id}.ogg") + glob.glob(f"voice_message_{file_id}.wav"):
+        try:
+            os.remove(file_path)
+            logger.info(f"Удалён файл: {file_path}")
+        except Exception as e:
+            logger.warning(f"Не удалось удалить файл {file_path}: {e}")
+
+
+async def remove_all_audio_files():
+    # Удаление старых аудиофайлов
+    for file_path in glob.glob("*.ogg") + glob.glob("*.wav"):
+        try:
+            os.remove(file_path)
+            logger.info(f"Удалён файл: {file_path}")
+        except Exception as e:
+            logger.warning(f"Не удалось удалить файл {file_path}: {e}")
+
+
+async def convert_voice_to_text(file_path: str, file_id):
     """
     Конвертирует голосовой файл в текст с помощью внешнего API Convertio.
 
+    :param file_id: Уникальный идентификатор голосового файла.
     :param file_path: URL-адрес файла, который нужно конвертировать.
     :raises ValueError: Если API возвращает ошибку на любом этапе.
     """
@@ -117,7 +152,7 @@ async def convert_voice_to_text(file_path: str):
             # Логируем успешное скачивание.
 
     # Сохранение файла на диск.
-    with open('voice_message.wav', 'wb') as f:
+    with open(f'voice_message_{file_id}.wav', 'wb') as f:
         # Открываем файл для записи в бинарном режиме.
         f.write(audio_content)
         # Записываем содержимое аудиофайла.
@@ -173,18 +208,19 @@ async def handle_voice(message: Message):
             # Логируем успешное завершение загрузки файла.
             logger.info("Аудиофайл успешно загружен")
 
-        # Открываем файл `voice_message.ogg` для записи в бинарном режиме.
-    with open('voice_message.ogg', 'wb') as f:
+    # Открываем файл `voice_message.ogg` для записи в бинарном режиме.
+    file_name_ogg = f"voice_message_{file_id}.ogg"
+    with open(file_name_ogg, 'wb') as f:
 
         # Сохраняем загруженное содержимое в файл.
         f.write(audio_content)
 
         # Логируем, что файл успешно сохранён.
-        logger.info("Файл сохранён как voice_message.ogg")
+        logger.info(f"Файл сохранён как {file_name_ogg}")
 
     try:
         # Пытаемся конвертировать голосовой файл в текстовый формат с помощью функции `convert_voice_to_text`.
-        await convert_voice_to_text(file_url)
+        await convert_voice_to_text(file_url, file_id)
 
         # Обрабатываем возможное исключение ValueError, если возникла ошибка при конвертации.
     except ValueError as e:
@@ -199,7 +235,7 @@ async def handle_voice(message: Message):
         return
 
         # Проверяем, существует ли файл `voice_message.wav` после конвертации.
-    if not os.path.exists('voice_message.wav'):
+    if not os.path.exists(f'voice_message_{file_id}.wav'):
         # Формируем сообщение об ошибке, если файл не найден.
         error_msg = "Ошибка при конвертации аудиофайла. Файл отсутствует."
 
@@ -213,7 +249,7 @@ async def handle_voice(message: Message):
         return
 
     # Распознавание текста с помощью Vosk
-    with wave.open('voice_message.wav', 'rb') as wf:
+    with wave.open(f'voice_message_{file_id}.wav', 'rb') as wf:
         # Открываем сконвертированный аудиофайл `voice_message.wav` для чтения.
 
         # Создаём объект `KaldiRecognizer` для распознавания речи с использованием модели Vosk.
@@ -265,19 +301,16 @@ async def handle_voice(message: Message):
             await message.reply(final_text)
 
 
+    # Удаляем старые файлы
+    await remove_audio_files(file_id)
+
+
 async def main():
     """
     Главная функция запуска бота. Удаляет старые файлы и начинает процесс polling.
     """
     logger.info("Запуск бота...")
-    # Удаление старых аудиофайлов
-    for file_path in glob.glob("*.ogg") + glob.glob("*.wav"):
-        try:
-            os.remove(file_path)
-            logger.info(f"Удалён файл: {file_path}")
-        except Exception as e:
-            logger.warning(f"Не удалось удалить файл {file_path}: {e}")
-
+    await remove_all_audio_files()
     await dp.start_polling(bot)
 
 

@@ -18,4 +18,7 @@ logger.add(
 
 
 def get_logger():
+    # Очистка файла bot.log при каждом запуске
+    with open("bot.log", "w"):
+        pass
     return logger
